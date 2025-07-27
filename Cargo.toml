@@ -1,0 +1,31 @@
+[package]
+name = "hic_resolution_rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "Fast Rust implementation of Hi-C map resolution calculation"
+license = "MIT"
+
+[lib]
+name = "hic_resolution_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hic_resolution"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+memchr = "2"
+rustc-hash = "1"
+rayon = "1"
+flate2 = "1"
+indicatif = "0.17"
+anyhow = "1"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "benchmark"
+harness = false
