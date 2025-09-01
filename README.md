@@ -1,6 +1,6 @@
 # Hi-C Resolution Calculator (Rust)
 
-A fast Rust implementation of the Hi-C map resolution calculation algorithm from Juicer, based on the methodology described in Rao & Huntley et al., Cell 2014.
+A fast Rust implementation of the Hi-C map resolution calculation algorithm from Juicer [calculate_map_resolution.sh](https://github.com/aidenlab/juicer/blob/main/misc/calculate_map_resolution.sh), based on the methodology described in Rao & Huntley et al., Cell 2014.
 
 ## Overview
 
@@ -18,6 +18,8 @@ This tool calculates the map resolution of Hi-C contact matrices by:
 
 ## Installation
 
+Download the pre - compiled version from the release, or compile it manually and add it to the environment variables.
+
 ```bash
 cargo build --release
 ```
@@ -26,17 +28,17 @@ cargo build --release
 
 Basic usage with a merged_nodups file:
 ```bash
-./target/release/hic_resolution merged_nodups.txt
+hic_resolution merged_nodups.txt
 ```
 
 With compressed input:
 ```bash
-./target/release/hic_resolution merged_nodups.txt.gz
+hic_resolution merged_nodups.txt.gz
 ```
 
 Reading from stdin:
 ```bash
-zcat merged_nodups.txt.gz | ./target/release/hic_resolution
+zcat merged_nodups.txt.gz | hic_resolution
 ```
 
 ### Command Line Options
@@ -52,13 +54,13 @@ zcat merged_nodups.txt.gz | ./target/release/hic_resolution
 
 ```bash
 # Human hg38 genome
-./target/release/hic_resolution --genome-size 3137161264 merged_nodups.txt
+hic_resolution --genome-size 3137161264 merged_nodups.txt
 
 # Custom parameters  
-./target/release/hic_resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
+hic_resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
 
 # With 8 threads
-./target/release/hic_resolution --threads 8 merged_nodups.txt.gz
+hic_resolution --threads 8 merged_nodups.txt.gz
 ```
 
 ### Pairtools .pairs Usage
@@ -67,10 +69,10 @@ The tool also accepts pairtools `.pairs` or `.pairs.gz` files with header lines 
 
 ```bash
 # Read directly from a .pairs file
-./target/release/hic_resolution data/mapped.pairs
+hic_resolution data/mapped.pairs
 
 # Read compressed .pairs.gz
-./target/release/hic_resolution data/mapped.pairs.gz
+hic_resolution data/mapped.pairs.gz
 ```
 
 - Chrom sizes are auto-derived from the `.pairs` header; `--chrom-size` is not required.

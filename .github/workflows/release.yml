@@ -1,0 +1,114 @@
+name: release
+
+# Grant required permissions for creating releases
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: hic-resolution-linux
+            bin_path: target/x86_64-unknown-linux-musl/release/hic_resolution
+            pack_cmd: |
+              set -e
+              mkdir -p dist
+              cp target/x86_64-unknown-linux-musl/release/hic_resolution dist/hic_resolution
+              ARCH=$(uname -m)
+              PKG=hic_resolution-${{ github.ref_name }}-linux-musl-$ARCH.tar.gz
+              tar -czf "$PKG" -C dist hic_resolution
+              sha256sum "$PKG" | awk '{print $1}' > "$PKG.sha256"
+          - os: macos-latest
+            artifact_name: hic-resolution-macos
+            bin_path: target/release/hic_resolution
+            pack_cmd: |
+              set -e
+              mkdir -p dist
+              cp target/release/hic_resolution dist/hic_resolution
+              ARCH=$(uname -m)
+              PKG=hic_resolution-${{ github.ref_name }}-macos-$ARCH.tar.gz
+              tar -czf "$PKG" -C dist hic_resolution
+              shasum -a 256 "$PKG" | awk '{print $1}' > "$PKG.sha256"
+          - os: windows-latest
+            artifact_name: hic-resolution-windows
+            bin_path: target\\release\\hic_resolution.exe
+            pack_cmd: |
+              New-Item -ItemType Directory -Force -Path dist | Out-Null
+              Copy-Item -Path target/release/hic_resolution.exe -Destination dist/hic_resolution.exe -Force
+              $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x86_64' } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { $env:PROCESSOR_ARCHITECTURE }
+              $pkg = "hic_resolution-${{ github.ref_name }}-windows-$arch.zip"
+              Compress-Archive -Path dist/hic_resolution.exe -DestinationPath $pkg -Force
+              (Get-FileHash $pkg -Algorithm SHA256).Hash | Set-Content -Encoding ascii "$pkg.sha256"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Update lockfile
+        run: cargo update -w
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install musl tools (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Add musl target (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Build release (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+
+      - name: Build release (non-Linux)
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo build --release --locked
+
+      - name: Package artifact
+        run: ${{ matrix.pack_cmd }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            *.tar.gz
+            *.zip
+            *.sha256
+
+  release:
+    name: publish
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/hic_resolution-*.tar.gz
+            artifacts/**/hic_resolution-*.zip
+            artifacts/**/hic_resolution-*.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
