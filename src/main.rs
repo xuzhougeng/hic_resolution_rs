@@ -2,9 +2,10 @@ pub mod coverage;
 pub mod parser;
 pub mod resolution;
 pub mod utils;
+pub mod straw;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::File;
 use std::io::stdin;
@@ -46,10 +47,25 @@ struct Cli {
     /// Number of threads to use (0 = auto)
     #[arg(short, long, default_value = "0")]
     threads: usize,
+
+    /// Optional subcommand. Use `straw` to work with .hic slices.
+    #[command(subcommand)]
+    cmd: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Straw-compatible utilities
+    Straw(straw::StrawCli),
 }
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+
+    // Subcommands take precedence
+    if let Some(Commands::Straw(cmd)) = &args.cmd {
+        return straw::run(cmd);
+    }
 
     // Set thread pool size
     if args.threads > 0 {

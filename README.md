@@ -79,6 +79,36 @@ hic_resolution data/mapped.pairs.gz
 - As a proxy for mapping quality, only rows with `pair_type == UU` are counted.
 - Note: Auto-detection relies on reading the file path. If you use stdin piping for `.pairs`, header detection is skipped; prefer passing the file path directly.
 
+## Straw (.hic) Utilities
+
+List resolutions and chromosomes in a `.hic` file:
+
+```bash
+hic_resolution straw list data/example.hic
+# Outputs:
+# Resolutions (BP): 25000, 10000, 5000, ...
+# Chromosomes (name\tlength):
+# chr1   248956422
+```
+
+Dump genome-wide observed counts at a resolution to a slice file (gzip):
+
+```bash
+hic_resolution straw dump observed NONE data/example.hic BP 10000 out.slc.gz
+```
+
+- Supports local `.hic` files; unit must be `BP` and normalization `NONE`.
+- Output slice format: magic `HICSLICE`, `i32` resolution, `i32` chrom count, then per-chrom mapping followed by records `(i16 chr1Key, i32 binX, i16 chr2Key, i32 binY, f32 value)`.
+
+Estimate effective resolution per chromosome (Python reference logic):
+
+```bash
+hic_resolution straw effres data/example.hic chr1 --thr 1000 --pct 0.8
+# Prints coverage by resolution and the first resolution meeting the threshold
+```
+
+- Computes, for each available BP resolution in the `.hic`, the fraction of bins on the chromosome with ≥ `thr` contacts (summing both ends of contacts), and reports the minimum resolution where coverage ≥ `pct`.
+
 ## Input Format
 
 The tool expects Juicer merged_nodups format with tab-separated fields:
