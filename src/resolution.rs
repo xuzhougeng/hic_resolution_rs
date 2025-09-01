@@ -42,7 +42,10 @@ pub fn find_resolution(
 
     // Find reasonable upper bound with large steps, but limit maximum
     let max_reasonable_bin = 10_000_000; // 10 Mb maximum
+    let limit = max_reasonable_bin
+        .min((genome_size.min(u64::from(u32::MAX))) as u32);
     let mut iteration = 0;
+    let mut found_upper = false;
 
     loop {
         iteration += 1;
@@ -69,21 +72,43 @@ pub fn find_resolution(
                 "Found upper bound: {} bp (good bins: {}/{})",
                 high, good_bins, total_bins
             );
+            found_upper = true;
             break;
         }
 
-        // If we've gone too far, there might not be enough data
-        if high >= max_reasonable_bin {
+        // If we've gone too far without finding an upper bound, stop
+        if high >= limit {
             println!(
-                "Warning: Reached maximum reasonable bin size ({}), using it as upper bound",
-                max_reasonable_bin
+                "Warning: Reached search limit ({} bp) without meeting requirement.",
+                limit
             );
-            high = max_reasonable_bin;
+            // Ensure 'high' is within limit and aligned to bin multiple
+            high = round_to_bin_multiple(limit, coverage.bin_width);
             break;
         }
 
         low = high;
-        high += adjusted_step_size;
+        // Increase and align to multiple of base bin width
+        let mut next = high.saturating_add(adjusted_step_size);
+        next = round_to_bin_multiple(next, coverage.bin_width);
+        if next == high { // avoid stalling if step < bin width
+            next = next.saturating_add(coverage.bin_width);
+        }
+        high = next;
+    }
+
+    if !found_upper {
+        println!(
+            "Error: No bin size up to {} bp satisfies >= {:.1}% bins with >= {} contacts.",
+            high,
+            prop * 100.0,
+            count_threshold
+        );
+        println!(
+            "Returning upper limit ({} bp). Result does not satisfy the target proportion.",
+            high
+        );
+        return high;
     }
 
     println!("Binary search range: {} - {} bp", low, high);

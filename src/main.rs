@@ -67,9 +67,21 @@ fn main() -> Result<()> {
     println!("Required proportion: {:.1}%", args.prop * 100.0);
     println!();
 
-    // Create coverage structure
+    // Create coverage structure (auto-detect pairtools header if present)
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
-    let coverage = coverage::Coverage::new(args.bin_width, chrom_size_path);
+    let mut pairs_mode = false;
+    let mut pairs_chr_map: Option<utils::ChrMap> = None;
+    let coverage = if let Some(path) = args.nodups.as_ref() {
+        if let Ok(Some((map, lengths))) = parser::sniff_pairs_header_from_path(path.as_path()) {
+            pairs_mode = true;
+            pairs_chr_map = Some(map);
+            coverage::Coverage::from_lengths(args.bin_width, lengths)
+        } else {
+            coverage::Coverage::new(args.bin_width, chrom_size_path)
+        }
+    } else {
+        coverage::Coverage::new(args.bin_width, chrom_size_path)
+    };
     println!(
         "Initialized coverage tracking for {} chromosomes",
         coverage.bins.len()
@@ -87,12 +99,24 @@ fn main() -> Result<()> {
     pb.set_message("Reading merged_nodups file...");
     let pairs_processed = if let Some(path) = args.nodups {
         let file = File::open(&path)?;
-        if path.extension().map_or(false, |ext| ext == "gz") {
-            let iter = parser::open_file(file, chrom_size_path)?;
-            process_pairs(iter, &coverage, &pb)?
+        let is_gz = path.extension().map_or(false, |ext| ext == "gz");
+        if pairs_mode {
+            let chr_map = pairs_chr_map.expect("pairs chr_map should be set");
+            if is_gz {
+                let iter = parser::open_pairs_file(file, chr_map)?;
+                process_pairs(iter, &coverage, &pb)?
+            } else {
+                let iter = parser::open_pairs_file_uncompressed(file, chr_map)?;
+                process_pairs(iter, &coverage, &pb)?
+            }
         } else {
-            let iter = parser::open_file_uncompressed(file, chrom_size_path)?;
-            process_pairs(iter, &coverage, &pb)?
+            if is_gz {
+                let iter = parser::open_file(file, chrom_size_path)?;
+                process_pairs(iter, &coverage, &pb)?
+            } else {
+                let iter = parser::open_file_uncompressed(file, chrom_size_path)?;
+                process_pairs(iter, &coverage, &pb)?
+            }
         }
     } else {
         // Read from stdin

@@ -61,6 +61,22 @@ zcat merged_nodups.txt.gz | ./target/release/hic_resolution
 ./target/release/hic_resolution --threads 8 merged_nodups.txt.gz
 ```
 
+### Pairtools .pairs Usage
+
+The tool also accepts pairtools `.pairs` or `.pairs.gz` files with header lines (e.g., `#chromsize:`):
+
+```bash
+# Read directly from a .pairs file
+./target/release/hic_resolution data/mapped.pairs
+
+# Read compressed .pairs.gz
+./target/release/hic_resolution data/mapped.pairs.gz
+```
+
+- Chrom sizes are auto-derived from the `.pairs` header; `--chrom-size` is not required.
+- As a proxy for mapping quality, only rows with `pair_type == UU` are counted.
+- Note: Auto-detection relies on reading the file path. If you use stdin piping for `.pairs`, header detection is skipped; prefer passing the file path directly.
+
 ## Input Format
 
 The tool expects Juicer merged_nodups format with tab-separated fields:
@@ -68,7 +84,9 @@ The tool expects Juicer merged_nodups format with tab-separated fields:
 str1  chr1  pos1  frag1  str2  chr2  pos2  frag2  mapq1  cigar1  seq1  mapq2
 ```
 
-Only inter-chromosomal contacts with mapq1>0 and mapq2>0 are processed.
+Pairs are counted when `mapq1 > 0`, `mapq2 > 0`, and `frag1 != frag2`. Both intra- and inter-chromosomal pairs are included.
+
+Also supports pairtools `.pairs[.gz]` format with header lines (e.g., `#chromsize:`). For `.pairs` input, the tool auto-detects the header, builds chromosome lengths from it, and parses data rows using columns `chrom1 pos1 chrom2 pos2`. As a proxy for mapping quality, only rows with `pair_type == UU` are used.
 
 ## Performance
 

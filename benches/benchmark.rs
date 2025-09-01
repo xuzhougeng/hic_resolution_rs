@@ -6,7 +6,7 @@ fn benchmark_coverage_build(c: &mut Criterion) {
     c.bench_function("coverage_build_1M_pairs", |b| {
         b.iter(|| {
             let coverage = Coverage::new(50);
-            
+
             // Simulate 1M pairs
             for i in 0..1_000_000 {
                 let pair = Pair {
@@ -17,7 +17,7 @@ fn benchmark_coverage_build(c: &mut Criterion) {
                 };
                 coverage.add_pair(&pair);
             }
-            
+
             black_box(coverage)
         })
     });
@@ -35,7 +35,7 @@ fn benchmark_resolution_search(c: &mut Criterion) {
         };
         coverage.add_pair(&pair);
     }
-    
+
     c.bench_function("resolution_search", |b| {
         b.iter(|| {
             hic_resolution_rs::resolution::find_resolution(
@@ -48,5 +48,9 @@ fn benchmark_resolution_search(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_coverage_build, benchmark_resolution_search);
+criterion_group!(
+    benches,
+    benchmark_coverage_build,
+    benchmark_resolution_search
+);
 criterion_main!(benches);

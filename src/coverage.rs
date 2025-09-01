@@ -26,6 +26,22 @@ impl Coverage {
         }
     }
 
+    pub fn from_lengths(bin_width: u32, chr_lengths: Vec<u32>) -> Self {
+        let bins: Vec<Vec<AtomicU32>> = chr_lengths
+            .iter()
+            .map(|&len| {
+                let num_bins = (len / bin_width) + 1;
+                (0..num_bins).map(|_| AtomicU32::new(0)).collect()
+            })
+            .collect();
+
+        Self {
+            bins,
+            bin_width,
+            chr_lengths,
+        }
+    }
+
     pub fn increment(&self, chr: u8, pos: u32) {
         let chr_idx = (chr as usize).saturating_sub(1);
         if chr_idx >= self.bins.len() {
