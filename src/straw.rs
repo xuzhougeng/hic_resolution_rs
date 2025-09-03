@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Context, Result};
-use clap::{Args, Subcommand};
 use flate2::read::ZlibDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -12,75 +11,6 @@ use std::path::{Path, PathBuf};
 // Magic string for slice files (no NUL terminator)
 const HICSLICE_MAGIC: &[u8] = b"HICSLICE";
 
-#[derive(Args, Debug)]
-pub struct StrawCli {
-    #[command(subcommand)]
-    pub cmd: StrawCmd,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum StrawCmd {
-    /// Dump genome-wide observed counts at resolution to a slice file (.slc.gz)
-    Dump {
-        /// observed/oe/expected (only observed supported)
-        matrix_type: String,
-        /// NONE/VC/VC_SQRT/KR (only NONE supported)
-        norm: String,
-        /// Input Hi-C file (.hic)
-        input: PathBuf,
-        /// Units (BP only supported)
-        unit: String,
-        /// Bin size / resolution in bp
-        binsize: i32,
-        /// Output file path (.slc.gz)
-        output: PathBuf,
-    },
-    /// List chromosomes in a .hic file
-    List {
-        /// Input Hi-C file (.hic)
-        input: PathBuf,
-    },
-    /// Estimate effective resolution on a chromosome
-    Effres {
-        /// Input Hi-C file (.hic)
-        input: PathBuf,
-        /// Chromosome name, e.g. 1 / chr1 / X
-        chromosome: String,
-        /// Minimum contacts per bin to count as covered
-        #[arg(long, default_value_t = 1000)]
-        thr: i32,
-        /// Coverage fraction threshold (0–1)
-        #[arg(long, default_value_t = 0.8)]
-        pct: f64,
-    },
-}
-
-pub fn run(cli: &StrawCli) -> Result<()> {
-    match &cli.cmd {
-        StrawCmd::Dump {
-            matrix_type,
-            norm,
-            input,
-            unit,
-            binsize,
-            output,
-        } => {
-            if matrix_type.to_ascii_lowercase() != "observed" {
-                return Err(anyhow!("Only 'observed' is supported in this Rust port"));
-            }
-            if norm.to_ascii_uppercase() != "NONE" {
-                return Err(anyhow!("Only 'NONE' normalization is supported in this Rust port"));
-            }
-            if unit.to_ascii_uppercase() != "BP" {
-                return Err(anyhow!("Only BP units are supported in this Rust port"));
-            }
-            dump_hic_genome_wide(input, *binsize, output)
-        }
-        StrawCmd::List { input } => list_hic_chromosomes(input),
-        StrawCmd::Effres { input, chromosome, thr, pct } => effres_hic(input, chromosome, *thr, *pct),
-    }
-}
-
 // Minimal structures
 #[derive(Clone, Debug)]
 struct IndexEntry { size: i64, position: i64 }
@@ -88,6 +18,7 @@ struct IndexEntry { size: i64, position: i64 }
 #[derive(Clone, Debug)]
 struct Chromosome { name: String, index: i32, length: i64 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct HicFile {
     file: BufReader<File>,
@@ -157,6 +88,7 @@ impl HicFile {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct MatrixZoomData {
     version: i32,
@@ -325,7 +257,7 @@ fn read_block(path: &Path, idx: &IndexEntry, version: i32) -> Result<Vec<Contact
     Ok(out)
 }
 
-fn dump_hic_genome_wide(input: &Path, binsize: i32, output: &Path) -> Result<()> {
+pub fn dump_hic_genome_wide(input: &Path, binsize: i32, output: &Path) -> Result<()> {
     let mut hic = HicFile::open(input)?;
     // Build chromosome keys (skip index <= 0 per C++ code)
     let mut chr_keys: BTreeMap<String, i16> = BTreeMap::new();
@@ -399,7 +331,7 @@ fn read_cstring<R: Read>(r: &mut R) -> Result<String> {
     Ok(String::from_utf8(buf).unwrap_or_default())
 }
 
-fn list_hic_chromosomes(input: &Path) -> Result<()> {
+pub fn list_hic_chromosomes(input: &Path) -> Result<()> {
     let hic = HicFile::open(input)?;
     // Print available BP resolutions
     let mut res = hic.resolutions.clone();
@@ -415,7 +347,7 @@ fn list_hic_chromosomes(input: &Path) -> Result<()> {
     Ok(())
 }
 
-fn effres_hic(input: &Path, chrom_req: &str, thr: i32, pct: f64) -> Result<()> {
+pub fn effres_hic(input: &Path, chrom_req: &str, thr: i32, pct: f64) -> Result<()> {
     let mut hic = HicFile::open(input)?;
     // Collect available chromosomes with owned names to avoid borrowing conflicts
     let avail: Vec<(String, i32)> = hic

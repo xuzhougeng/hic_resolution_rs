@@ -19,7 +19,7 @@ pub struct PairIterator<R: BufRead> {
 }
 
 impl<R: BufRead> PairIterator<R> {
-    pub fn new(reader: R, chr_map: ChrMap, mode: ParseMode) -> Self {
+    fn new(reader: R, chr_map: ChrMap, mode: ParseMode) -> Self {
         Self {
             reader,
             chr_map,
