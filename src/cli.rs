@@ -6,6 +6,8 @@ use std::io::stdin;
 use std::path::PathBuf;
 
 use crate::{coverage, parser, resolution, straw, utils};
+use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -126,7 +128,7 @@ pub fn run() -> Result<()> {
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
     let mut pairs_mode = false;
     let mut pairs_chr_map: Option<utils::ChrMap> = None;
-    let coverage = if let Some(path) = args.nodups.as_ref() {
+    let mut coverage = if let Some(path) = args.nodups.as_ref() {
         if let Ok(Some((map, lengths))) = parser::sniff_pairs_header_from_path(path.as_path()) {
             pairs_mode = true;
             pairs_chr_map = Some(map);
@@ -159,24 +161,24 @@ pub fn run() -> Result<()> {
             let chr_map = pairs_chr_map.expect("pairs chr_map should be set");
             if is_gz {
                 let iter = parser::open_pairs_file(file, chr_map)?;
-                process_pairs(iter, &coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb)?
             } else {
                 let iter = parser::open_pairs_file_uncompressed(file, chr_map)?;
-                process_pairs(iter, &coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb)?
             }
         } else {
             if is_gz {
                 let iter = parser::open_file(file, chrom_size_path)?;
-                process_pairs(iter, &coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb)?
             } else {
                 let iter = parser::open_file_uncompressed(file, chrom_size_path)?;
-                process_pairs(iter, &coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb)?
             }
         }
     } else {
         // Read from stdin
         let iter = parser::open_file(stdin(), chrom_size_path)?;
-        process_pairs(iter, &coverage, &pb)?
+        process_pairs(iter, &mut coverage, &pb)?
     };
 
     pb.set_message("Computing resolution...");
@@ -195,15 +197,20 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn process_pairs<I>(iter: I, coverage: &coverage::Coverage, pb: &ProgressBar) -> Result<u64>
+fn process_pairs<I>(iter: I, coverage: &mut coverage::Coverage, pb: &ProgressBar) -> Result<u64>
 where
     I: Iterator<Item = Result<utils::Pair>>,
 {
     let mut count = 0u64;
+    let mut buf: Vec<utils::Pair> = Vec::with_capacity(1_000_000);
 
     for pair_result in iter {
         let pair = pair_result?;
-        coverage.add_pair(&pair);
+        buf.push(pair);
+        if buf.len() >= 1_000_000 {
+            aggregate_pairs_chunk(&buf, coverage);
+            buf.clear();
+        }
         count += 1;
 
         if count % 1_000_000 == 0 {
@@ -214,7 +221,60 @@ where
         }
     }
 
+    if !buf.is_empty() {
+        aggregate_pairs_chunk(&buf, coverage);
+        buf.clear();
+    }
+
     Ok(count)
+}
+
+fn aggregate_pairs_chunk(pairs: &[utils::Pair], coverage: &mut coverage::Coverage) {
+    let binw = coverage.bin_width;
+    let chr_lens = &coverage.chr_lengths;
+
+    // Process in parallel into sparse per-worker maps, then merge
+    let partials: Vec<FxHashMap<(usize, u32), u32>> = pairs
+        .par_chunks(64_000)
+        .map(|chunk| {
+            let mut map: FxHashMap<(usize, u32), u32> = FxHashMap::default();
+            for p in chunk {
+                // First end
+                let ci1 = (p.chr1 as usize).saturating_sub(1);
+                if ci1 < chr_lens.len() {
+                    let pos1 = p.pos1;
+                    if pos1 < chr_lens[ci1] {
+                        let b1 = pos1 / binw;
+                        *map.entry((ci1, b1)).or_insert(0) += 1;
+                    }
+                }
+                // Second end
+                let ci2 = (p.chr2 as usize).saturating_sub(1);
+                if ci2 < chr_lens.len() {
+                    let pos2 = p.pos2;
+                    if pos2 < chr_lens[ci2] {
+                        let b2 = pos2 / binw;
+                        *map.entry((ci2, b2)).or_insert(0) += 1;
+                    }
+                }
+            }
+            map
+        })
+        .collect();
+
+    for part in partials {
+        for ((ci, b), v) in part {
+            if ci < coverage.bins.len() {
+                let row = &mut coverage.bins[ci];
+                let bi = b as usize;
+                if bi < row.len() {
+                    // saturating add to be safe
+                    let newv = row[bi].saturating_add(v);
+                    row[bi] = newv;
+                }
+            }
+        }
+    }
 }
 
 fn run_straw(cli: &StrawCli) -> Result<()> {
