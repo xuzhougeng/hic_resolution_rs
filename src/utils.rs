@@ -355,6 +355,13 @@ pub fn build_lookup_from_names(names: Vec<String>) -> ChrLookup {
     map
 }
 
+// Human-readable implementation label for runtime display
+#[cfg(feature = "fast_chrmap")]
+pub fn chr_lookup_impl() -> &'static str { "fast_chrmap (open addressing)" }
+
+#[cfg(not(feature = "fast_chrmap"))]
+pub fn chr_lookup_impl() -> &'static str { "FxHashMap" }
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -169,11 +169,12 @@ pub fn run() -> Result<()> {
     };
     // Now that we have names + lengths, print computed genome info and settings
     let genome_size: u64 = genome_lengths.iter().map(|&x| x as u64).sum();
+    println!("Genome size: {} bp", genome_size);
     println!("Bin width: {} bp", args.bin_width);
     println!("Coverage threshold: {} contacts", args.count_threshold);
     println!("Required proportion: {:.1}%", args.prop * 100.0);
+    println!("Chromosome lookup: {}", utils::chr_lookup_impl());
     // Top-10 chromosomes by length (descending)
-    println!("Genome size: {} bp", genome_size);
     if !genome_names.is_empty() && !genome_lengths.is_empty() {
         let mut pairs: Vec<(&str, u32)> = genome_names
             .iter()
