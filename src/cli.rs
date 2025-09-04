@@ -127,7 +127,7 @@ pub fn run() -> Result<()> {
     // Create coverage structure (auto-detect pairtools header if present)
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
     let mut pairs_mode = false;
-    let mut pairs_chr_map: Option<utils::ChrMap> = None;
+    let mut pairs_chr_map: Option<utils::FastChrMap> = None;
     let mut coverage = if let Some(path) = args.nodups.as_ref() {
         if let Ok(Some((map, lengths))) = parser::sniff_pairs_header_from_path(path.as_path()) {
             pairs_mode = true;

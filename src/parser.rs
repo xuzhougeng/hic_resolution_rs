@@ -1,4 +1,4 @@
-use crate::utils::{ChrMap, Pair};
+use crate::utils::{FastChrMap, Pair};
 use anyhow::Result;
 use flate2::read::MultiGzDecoder;
 use std::io::Read;
@@ -13,13 +13,13 @@ enum ParseMode {
 
 pub struct PairIterator<R: BufRead> {
     reader: R,
-    chr_map: ChrMap,
+    chr_map: FastChrMap,
     buffer: String,
     mode: ParseMode,
 }
 
 impl<R: BufRead> PairIterator<R> {
-    fn new(reader: R, chr_map: ChrMap, mode: ParseMode) -> Self {
+    fn new(reader: R, chr_map: FastChrMap, mode: ParseMode) -> Self {
         Self {
             reader,
             chr_map,
@@ -95,7 +95,7 @@ impl<R: BufRead> Iterator for PairIterator<R> {
     }
 }
 
-fn parse_line_juicer(line: &str, chr_map: &ChrMap) -> Option<Pair> {
+fn parse_line_juicer(line: &str, chr_map: &FastChrMap) -> Option<Pair> {
     // Fast, zero-copy field scanner over ASCII whitespace
     let bytes = line.as_bytes();
     let mut i = 0usize;
@@ -160,21 +160,15 @@ fn parse_line_juicer(line: &str, chr_map: &ChrMap) -> Option<Pair> {
     }
 
     // Passed filter: now parse chr and positions
-    let chr1 = {
-        let s = std::str::from_utf8(&bytes[s1..e1]).ok()?;
-        *chr_map.get(s)?
-    };
+    let chr1 = chr_map.get_bytes(&bytes[s1..e1])?;
     let pos1 = crate::utils::parse_u32_fast(&bytes[s2..e2])?;
-    let chr2 = {
-        let s = std::str::from_utf8(&bytes[s5..e5]).ok()?;
-        *chr_map.get(s)?
-    };
+    let chr2 = chr_map.get_bytes(&bytes[s5..e5])?;
     let pos2 = crate::utils::parse_u32_fast(&bytes[s6..e6])?;
 
     Some(Pair { chr1, pos1, chr2, pos2 })
 }
 
-fn parse_line_pairs(line: &str, chr_map: &ChrMap) -> Option<Pair> {
+fn parse_line_pairs(line: &str, chr_map: &FastChrMap) -> Option<Pair> {
     let line = line.trim_end();
     if line.is_empty() || line.starts_with('#') {
         return None;
@@ -197,9 +191,9 @@ fn parse_line_pairs(line: &str, chr_map: &ChrMap) -> Option<Pair> {
         return None;
     }
 
-    let chr1 = chr_map.get(chr1_str).copied()?;
+    let chr1 = chr_map.get(chr1_str)?;
     let pos1 = pos1_str.parse::<u32>().ok()?;
-    let chr2 = chr_map.get(chr2_str).copied()?;
+    let chr2 = chr_map.get(chr2_str)?;
     let pos2 = pos2_str.parse::<u32>().ok()?;
 
     Some(Pair { chr1, pos1, chr2, pos2 })
@@ -212,7 +206,7 @@ pub fn open_file<R: Read>(
     let decoder = MultiGzDecoder::new(reader);
     // Larger buffer helps throughput on large text files
     let buf_reader = BufReader::with_capacity(256 * 1024, decoder);
-    let chr_map = crate::utils::create_chr_map(chrom_size_file);
+    let chr_map = crate::utils::create_fast_chr_map(chrom_size_file);
     Ok(PairIterator::new(buf_reader, chr_map, ParseMode::Juicer))
 }
 
@@ -221,13 +215,13 @@ pub fn open_file_uncompressed<R: Read>(
     chrom_size_file: Option<&str>,
 ) -> Result<PairIterator<BufReader<R>>> {
     let buf_reader = BufReader::with_capacity(256 * 1024, reader);
-    let chr_map = crate::utils::create_chr_map(chrom_size_file);
+    let chr_map = crate::utils::create_fast_chr_map(chrom_size_file);
     Ok(PairIterator::new(buf_reader, chr_map, ParseMode::Juicer))
 }
 
 pub fn open_pairs_file<R: Read>(
     reader: R,
-    chr_map: ChrMap,
+    chr_map: FastChrMap,
 ) -> Result<PairIterator<BufReader<MultiGzDecoder<R>>>> {
     let decoder = MultiGzDecoder::new(reader);
     let buf_reader = BufReader::with_capacity(64 * 1024, decoder);
@@ -236,14 +230,14 @@ pub fn open_pairs_file<R: Read>(
 
 pub fn open_pairs_file_uncompressed<R: Read>(
     reader: R,
-    chr_map: ChrMap,
+    chr_map: FastChrMap,
 ) -> Result<PairIterator<BufReader<R>>> {
     let buf_reader = BufReader::with_capacity(64 * 1024, reader);
     Ok(PairIterator::new(buf_reader, chr_map, ParseMode::Pairs))
 }
 
 use std::path::Path;
-pub fn sniff_pairs_header_from_path(path: &Path) -> Result<Option<(ChrMap, Vec<u32>)>> {
+pub fn sniff_pairs_header_from_path(path: &Path) -> Result<Option<(FastChrMap, Vec<u32>)>> {
     use std::fs::File;
     let file = File::open(path)?;
     let is_gz = path
@@ -259,7 +253,7 @@ pub fn sniff_pairs_header_from_path(path: &Path) -> Result<Option<(ChrMap, Vec<u
     }
 }
 
-fn sniff_pairs_header<R: Read>(reader: R) -> Result<Option<(ChrMap, Vec<u32>)>> {
+fn sniff_pairs_header<R: Read>(reader: R) -> Result<Option<(FastChrMap, Vec<u32>)>> {
     let mut reader = BufReader::with_capacity(64 * 1024, reader);
     let mut buf = String::new();
     let mut lengths: Vec<u32> = Vec::new();
@@ -324,12 +318,13 @@ fn sniff_pairs_header<R: Read>(reader: R) -> Result<Option<(ChrMap, Vec<u32>)>> 
     }
 
     if !lengths.is_empty() {
-        let mut map = ChrMap::default();
-        for (i, nm) in names.into_iter().enumerate() {
-            let idx = (i + 1) as u8;
-            map.insert(nm, idx);
+        // Build FastChrMap preserving the header order
+        let mut codes: Vec<u8> = Vec::with_capacity(names.len());
+        for (i, _) in names.iter().enumerate() {
+            codes.push((i + 1) as u8);
         }
-        Ok(Some((map, lengths)))
+        let fast = crate::utils::FastChrMap::from_names_codes(names, codes);
+        Ok(Some((fast, lengths)))
     } else if seen_any {
         Ok(None) // header present but no lengths parsed
     } else {

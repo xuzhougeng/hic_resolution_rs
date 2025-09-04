@@ -6,6 +6,70 @@ use std::str;
 
 pub type ChrMap = FxHashMap<String, u8>;
 
+// A compact, fast open-addressing map from chromosome name -> u8 code.
+// Built once from provided chrom.size or pairs header; lookups are zero-allocation.
+#[derive(Clone, Debug)]
+pub struct FastChrMap {
+    // All keys stored once for byte comparison
+    names: Vec<String>,
+    // Code per entry in `names`
+    codes: Vec<u8>,
+    // Open addressing table storing index into `names` (i32: -1 = empty)
+    slots: Vec<i32>,
+    mask: usize,
+}
+
+impl FastChrMap {
+    pub fn from_names_codes(names: Vec<String>, codes: Vec<u8>) -> Self {
+        let n = names.len().max(1);
+        let cap = (n.next_power_of_two()) * 2; // load factor <= 0.5
+        let mut slots = vec![-1; cap];
+        let mask = cap - 1;
+        // Fill slots using local probing to avoid borrow conflicts
+        for (i, name) in names.iter().enumerate() {
+            let mut h = fnv1a64(name.as_bytes()) as usize & mask;
+            loop {
+                let s = slots[h];
+                if s == -1 {
+                    slots[h] = i as i32;
+                    break;
+                }
+                h = (h + 1) & mask;
+            }
+        }
+        FastChrMap { names, codes, slots, mask }
+    }
+
+    #[inline]
+    pub fn get(&self, key: &str) -> Option<u8> {
+        self.get_bytes(key.as_bytes())
+    }
+
+    #[inline]
+    pub fn get_bytes(&self, key: &[u8]) -> Option<u8> {
+        let mut h = fnv1a64(key) as usize & self.mask;
+        loop {
+            let s = self.slots[h];
+            if s == -1 { return None; }
+            let i = s as usize;
+            if self.names[i].as_bytes() == key {
+                return Some(self.codes[i]);
+            }
+            h = (h + 1) & self.mask;
+        }
+    }
+}
+
+#[inline]
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 #[derive(Debug, Clone)]
 pub struct Pair {
     pub chr1: u8,
@@ -26,6 +90,64 @@ pub fn create_chr_map(chrom_size_file: Option<&str>) -> ChrMap {
     } else {
         create_default_chr_map()
     }
+}
+
+pub fn create_fast_chr_map(chrom_size_file: Option<&str>) -> FastChrMap {
+    if let Some(filename) = chrom_size_file {
+        create_fast_chr_map_from_file(filename).unwrap_or_else(|_| {
+            eprintln!(
+                "Warning: Could not load {}, using default human chromosome map",
+                filename
+            );
+            fast_map_from_default()
+        })
+    } else {
+        fast_map_from_default()
+    }
+}
+
+pub fn create_fast_chr_map_from_file(filename: &str) -> Result<FastChrMap> {
+    // Build in same order as create_chr_map_from_file but with both names and codes
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+    let mut names: Vec<String> = Vec::new();
+    let mut codes: Vec<u8> = Vec::new();
+    let mut chr_index = 1u8;
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 2 {
+            let chr_name = parts[0].to_string();
+            names.push(chr_name);
+            codes.push(chr_index);
+            chr_index = chr_index.saturating_add(1);
+        }
+    }
+    Ok(FastChrMap::from_names_codes(names, codes))
+}
+
+fn fast_map_from_default() -> FastChrMap {
+    // Provide both bare and chr-prefixed aliases as entries mapping to same code
+    let mut names: Vec<String> = Vec::new();
+    let mut codes: Vec<u8> = Vec::new();
+    for i in 1..=22u8 {
+        names.push(i.to_string());
+        codes.push(i);
+        names.push(format!("chr{}", i));
+        codes.push(i);
+    }
+    names.push("X".to_string()); codes.push(23);
+    names.push("chrX".to_string()); codes.push(23);
+    names.push("Y".to_string()); codes.push(24);
+    names.push("chrY".to_string()); codes.push(24);
+    names.push("23".to_string()); codes.push(23);
+    names.push("chr23".to_string()); codes.push(23);
+    names.push("24".to_string()); codes.push(24);
+    names.push("chr24".to_string()); codes.push(24);
+    FastChrMap::from_names_codes(names, codes)
 }
 
 pub fn create_chr_map_from_file(filename: &str) -> Result<ChrMap> {
