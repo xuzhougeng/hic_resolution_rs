@@ -51,8 +51,7 @@
 
 # total size of genome, from http://genomewiki.ucsc.edu/index.php/Hg19_Genome_size_statistics
 # modify this number if your genome is not hg19
-#total=3137161264
-total=2428425688
+total=3137161264
 
 if [ "$#" -ne 2 ]
 then

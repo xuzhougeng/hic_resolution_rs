@@ -23,6 +23,10 @@ flate2 = "1"
 indicatif = "0.17"
 anyhow = "1"
 
+[features]
+# Enable experimental fast chromosome name lookup (open addressing FNV map)
+fast_chrmap = []
+
 [dev-dependencies]
 criterion = "0.5"
 

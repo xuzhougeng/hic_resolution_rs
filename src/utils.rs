@@ -8,6 +8,7 @@ pub type ChrMap = FxHashMap<String, u8>;
 
 // A compact, fast open-addressing map from chromosome name -> u8 code.
 // Built once from provided chrom.size or pairs header; lookups are zero-allocation.
+#[cfg(feature = "fast_chrmap")]
 #[derive(Clone, Debug)]
 pub struct FastChrMap {
     // All keys stored once for byte comparison
@@ -19,6 +20,7 @@ pub struct FastChrMap {
     mask: usize,
 }
 
+#[cfg(feature = "fast_chrmap")]
 impl FastChrMap {
     pub fn from_names_codes(names: Vec<String>, codes: Vec<u8>) -> Self {
         let n = names.len().max(1);
@@ -92,6 +94,7 @@ pub fn create_chr_map(chrom_size_file: Option<&str>) -> ChrMap {
     }
 }
 
+#[cfg(feature = "fast_chrmap")]
 pub fn create_fast_chr_map(chrom_size_file: Option<&str>) -> FastChrMap {
     if let Some(filename) = chrom_size_file {
         create_fast_chr_map_from_file(filename).unwrap_or_else(|_| {
@@ -106,6 +109,7 @@ pub fn create_fast_chr_map(chrom_size_file: Option<&str>) -> FastChrMap {
     }
 }
 
+#[cfg(feature = "fast_chrmap")]
 pub fn create_fast_chr_map_from_file(filename: &str) -> Result<FastChrMap> {
     // Build in same order as create_chr_map_from_file but with both names and codes
     let file = File::open(filename)?;
@@ -129,6 +133,7 @@ pub fn create_fast_chr_map_from_file(filename: &str) -> Result<FastChrMap> {
     Ok(FastChrMap::from_names_codes(names, codes))
 }
 
+#[cfg(feature = "fast_chrmap")]
 fn fast_map_from_default() -> FastChrMap {
     // Provide both bare and chr-prefixed aliases as entries mapping to same code
     let mut names: Vec<String> = Vec::new();
@@ -235,6 +240,29 @@ pub fn get_genome_lengths_from_file(filename: &str) -> Result<Vec<u32>> {
     Ok(lengths)
 }
 
+pub fn read_chrom_sizes_with_names(filename: &str) -> Result<(Vec<String>, Vec<u32>)> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+    let mut names = Vec::new();
+    let mut lengths = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 2 {
+            if let Ok(length) = parts[1].parse::<u32>() {
+                names.push(parts[0].to_string());
+                lengths.push(length);
+            }
+        }
+    }
+    Ok((names, lengths))
+}
+
 pub fn get_default_genome_lengths() -> Vec<u32> {
     // hg19 chromosome lengths (from UCSC)
     vec![
@@ -265,6 +293,13 @@ pub fn get_default_genome_lengths() -> Vec<u32> {
     ]
 }
 
+pub fn get_default_genome_names() -> Vec<String> {
+    let mut names: Vec<String> = (1..=22).map(|i| i.to_string()).collect();
+    names.push("X".to_string());
+    names.push("Y".to_string());
+    names
+}
+
 #[inline]
 pub fn parse_u32_fast(s: &[u8]) -> Option<u32> {
     if s.is_empty() {
@@ -286,6 +321,37 @@ pub fn parse_u32_fast(s: &[u8]) -> Option<u32> {
 pub fn parse_chr(s: &[u8], chr_map: &ChrMap) -> Option<u8> {
     let s_str = str::from_utf8(s).ok()?;
     chr_map.get(s_str).copied()
+}
+
+// Unified lookup type and builders for parser via feature flag
+#[cfg(feature = "fast_chrmap")]
+pub type ChrLookup = FastChrMap;
+#[cfg(not(feature = "fast_chrmap"))]
+pub type ChrLookup = ChrMap;
+
+#[cfg(feature = "fast_chrmap")]
+pub fn create_lookup_map(chrom_size_file: Option<&str>) -> ChrLookup {
+    create_fast_chr_map(chrom_size_file)
+}
+
+#[cfg(not(feature = "fast_chrmap"))]
+pub fn create_lookup_map(chrom_size_file: Option<&str>) -> ChrLookup {
+    create_chr_map(chrom_size_file)
+}
+
+#[cfg(feature = "fast_chrmap")]
+pub fn build_lookup_from_names(names: Vec<String>) -> ChrLookup {
+    let codes: Vec<u8> = (0..names.len()).map(|i| (i as u8) + 1).collect();
+    FastChrMap::from_names_codes(names, codes)
+}
+
+#[cfg(not(feature = "fast_chrmap"))]
+pub fn build_lookup_from_names(names: Vec<String>) -> ChrLookup {
+    let mut map: ChrMap = ChrMap::default();
+    for (i, nm) in names.into_iter().enumerate() {
+        map.insert(nm, (i as u8) + 1);
+    }
+    map
 }
 
 #[cfg(test)]

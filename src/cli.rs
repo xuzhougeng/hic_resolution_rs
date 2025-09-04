@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use crate::{coverage, parser, resolution, straw, utils};
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -23,7 +22,7 @@ pub struct Cli {
     pub chrom_size: Option<PathBuf>,
 
     /// Total genome size in base pairs
-    #[arg(long, default_value = "2428425688")]
+    #[arg(long, default_value = "1000000000")]
     pub genome_size: u64,
 
     /// Minimum bin size (base pairs)
@@ -43,8 +42,18 @@ pub struct Cli {
     pub step_size: u32,
 
     /// Number of threads to use (0 = auto)
-    #[arg(short, long, default_value = "0")]
+    #[arg(short, long, default_value = "4")]
     pub threads: usize,
+
+    /// Aggregation chunk size in number of pairs
+    /// Default chosen to fit comfortably under ~8 GB RAM
+    #[arg(long, value_name = "PAIRS", default_value = "4000000")]
+    pub chunk_pairs: usize,
+
+    /// Per-worker subchunk size in number of pairs
+    /// Default tuned for throughput under ~8 GB RAM
+    #[arg(long, value_name = "PAIRS", default_value = "128000")]
+    pub subchunk_pairs: usize,
 
     /// Optional subcommand. Use `straw` to work with .hic slices.
     #[command(subcommand)]
@@ -118,27 +127,67 @@ pub fn run() -> Result<()> {
 
     println!("Hi-C Resolution Calculator (Rust)");
     println!("=================================");
-    println!("Genome size: {} bp", args.genome_size);
-    println!("Bin width: {} bp", args.bin_width);
-    println!("Coverage threshold: {} contacts", args.count_threshold);
-    println!("Required proportion: {:.1}%", args.prop * 100.0);
-    println!();
 
     // Create coverage structure (auto-detect pairtools header if present)
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
     let mut pairs_mode = false;
-    let mut pairs_chr_map: Option<utils::FastChrMap> = None;
+    let mut pairs_chr_map: Option<utils::ChrLookup> = None;
+    let mut genome_names: Vec<String> = Vec::new();
+    let mut genome_lengths: Vec<u32> = Vec::new();
+
+    // Decide source of chromosome names + lengths, and build coverage
     let mut coverage = if let Some(path) = args.nodups.as_ref() {
-        if let Ok(Some((map, lengths))) = parser::sniff_pairs_header_from_path(path.as_path()) {
+        if let Ok(Some((map, names, lengths))) = parser::sniff_pairs_header_from_path(path.as_path()) {
             pairs_mode = true;
             pairs_chr_map = Some(map);
+            genome_names = names;
+            genome_lengths = lengths.clone();
             coverage::Coverage::from_lengths(args.bin_width, lengths)
         } else {
-            coverage::Coverage::new(args.bin_width, chrom_size_path)
+            if let Some(cs) = chrom_size_path {
+                let (names, lengths) = utils::read_chrom_sizes_with_names(cs)?;
+                genome_names = names;
+                genome_lengths = lengths.clone();
+                coverage::Coverage::from_lengths(args.bin_width, lengths)
+            } else {
+                genome_names = utils::get_default_genome_names();
+                genome_lengths = utils::get_default_genome_lengths();
+                coverage::Coverage::from_lengths(args.bin_width, genome_lengths.clone())
+            }
         }
     } else {
-        coverage::Coverage::new(args.bin_width, chrom_size_path)
+        if let Some(cs) = chrom_size_path {
+            let (names, lengths) = utils::read_chrom_sizes_with_names(cs)?;
+            genome_names = names;
+            genome_lengths = lengths.clone();
+            coverage::Coverage::from_lengths(args.bin_width, lengths)
+        } else {
+            genome_names = utils::get_default_genome_names();
+            genome_lengths = utils::get_default_genome_lengths();
+            coverage::Coverage::from_lengths(args.bin_width, genome_lengths.clone())
+        }
     };
+    // Now that we have names + lengths, print computed genome info and settings
+    let genome_size: u64 = genome_lengths.iter().map(|&x| x as u64).sum();
+    println!("Bin width: {} bp", args.bin_width);
+    println!("Coverage threshold: {} contacts", args.count_threshold);
+    println!("Required proportion: {:.1}%", args.prop * 100.0);
+    // Top-10 chromosomes by length (descending)
+    println!("Genome size: {} bp", genome_size);
+    if !genome_names.is_empty() && !genome_lengths.is_empty() {
+        let mut pairs: Vec<(&str, u32)> = genome_names
+            .iter()
+            .map(|s| s.as_str())
+            .zip(genome_lengths.iter().copied())
+            .collect();
+        pairs.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        let topn = pairs.iter().take(10).collect::<Vec<_>>();
+        println!("Top 10 chromosomes by length:");
+        for (i, (nm, ln)) in topn.into_iter().enumerate() {
+            println!("  {}. {}: {} bp", i + 1, nm, ln);
+        }
+    }
+    println!();
     println!(
         "Initialized coverage tracking for {} chromosomes",
         coverage.bins.len()
@@ -161,24 +210,24 @@ pub fn run() -> Result<()> {
             let chr_map = pairs_chr_map.expect("pairs chr_map should be set");
             if is_gz {
                 let iter = parser::open_pairs_file(file, chr_map)?;
-                process_pairs(iter, &mut coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb, args.chunk_pairs, args.subchunk_pairs)?
             } else {
                 let iter = parser::open_pairs_file_uncompressed(file, chr_map)?;
-                process_pairs(iter, &mut coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb, args.chunk_pairs, args.subchunk_pairs)?
             }
         } else {
             if is_gz {
                 let iter = parser::open_file(file, chrom_size_path)?;
-                process_pairs(iter, &mut coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb, args.chunk_pairs, args.subchunk_pairs)?
             } else {
                 let iter = parser::open_file_uncompressed(file, chrom_size_path)?;
-                process_pairs(iter, &mut coverage, &pb)?
+                process_pairs(iter, &mut coverage, &pb, args.chunk_pairs, args.subchunk_pairs)?
             }
         }
     } else {
         // Read from stdin
         let iter = parser::open_file(stdin(), chrom_size_path)?;
-        process_pairs(iter, &mut coverage, &pb)?
+        process_pairs(iter, &mut coverage, &pb, args.chunk_pairs, args.subchunk_pairs)?
     };
 
     pb.set_message("Computing resolution...");
@@ -197,18 +246,24 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn process_pairs<I>(iter: I, coverage: &mut coverage::Coverage, pb: &ProgressBar) -> Result<u64>
+fn process_pairs<I>(
+    iter: I,
+    coverage: &mut coverage::Coverage,
+    pb: &ProgressBar,
+    chunk_pairs: usize,
+    subchunk_pairs: usize,
+) -> Result<u64>
 where
     I: Iterator<Item = Result<utils::Pair>>,
 {
     let mut count = 0u64;
-    let mut buf: Vec<utils::Pair> = Vec::with_capacity(1_000_000);
+    let mut buf: Vec<utils::Pair> = Vec::with_capacity(chunk_pairs.min(8_000_000));
 
     for pair_result in iter {
         let pair = pair_result?;
         buf.push(pair);
-        if buf.len() >= 1_000_000 {
-            aggregate_pairs_chunk(&buf, coverage);
+        if buf.len() >= chunk_pairs {
+            aggregate_pairs_chunk(&buf, coverage, subchunk_pairs);
             buf.clear();
         }
         count += 1;
@@ -222,22 +277,27 @@ where
     }
 
     if !buf.is_empty() {
-        aggregate_pairs_chunk(&buf, coverage);
+        aggregate_pairs_chunk(&buf, coverage, subchunk_pairs);
         buf.clear();
     }
 
     Ok(count)
 }
 
-fn aggregate_pairs_chunk(pairs: &[utils::Pair], coverage: &mut coverage::Coverage) {
+fn aggregate_pairs_chunk(pairs: &[utils::Pair], coverage: &mut coverage::Coverage, subchunk_pairs: usize) {
     let binw = coverage.bin_width;
     let chr_lens = &coverage.chr_lengths;
 
-    // Process in parallel into sparse per-worker maps, then merge
-    let partials: Vec<FxHashMap<(usize, u32), u32>> = pairs
-        .par_chunks(64_000)
+    // Process in parallel: for each subchunk, build a vector of (key, count),
+    // where key packs (chrom_index, bin_index) into u64; then sort+compress.
+    let scl = subchunk_pairs.max(16_000);
+    let partials: Vec<Vec<(u64, u32)>> = pairs
+        .par_chunks(scl)
         .map(|chunk| {
-            let mut map: FxHashMap<(usize, u32), u32> = FxHashMap::default();
+            #[inline]
+            fn pack(ci: usize, b: u32) -> u64 { ((ci as u64) << 32) | (b as u64) }
+
+            let mut vec: Vec<(u64, u32)> = Vec::with_capacity(chunk.len() * 2);
             for p in chunk {
                 // First end
                 let ci1 = (p.chr1 as usize).saturating_sub(1);
@@ -245,7 +305,7 @@ fn aggregate_pairs_chunk(pairs: &[utils::Pair], coverage: &mut coverage::Coverag
                     let pos1 = p.pos1;
                     if pos1 < chr_lens[ci1] {
                         let b1 = pos1 / binw;
-                        *map.entry((ci1, b1)).or_insert(0) += 1;
+                        vec.push((pack(ci1, b1), 1));
                     }
                 }
                 // Second end
@@ -254,23 +314,33 @@ fn aggregate_pairs_chunk(pairs: &[utils::Pair], coverage: &mut coverage::Coverag
                     let pos2 = p.pos2;
                     if pos2 < chr_lens[ci2] {
                         let b2 = pos2 / binw;
-                        *map.entry((ci2, b2)).or_insert(0) += 1;
+                        vec.push((pack(ci2, b2), 1));
                     }
                 }
             }
-            map
+            // sort by key and run-length compress counts
+            vec.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            let mut out: Vec<(u64, u32)> = Vec::with_capacity(vec.len());
+            let mut it = vec.into_iter();
+            if let Some((mut k, mut v)) = it.next() {
+                for (kk, vv) in it {
+                    if kk == k { v = v.saturating_add(vv); } else { out.push((k, v)); k = kk; v = vv; }
+                }
+                out.push((k, v));
+            }
+            out
         })
         .collect();
 
+    // Merge compressed vectors into dense bins
     for part in partials {
-        for ((ci, b), v) in part {
+        for (key, v) in part {
+            let ci = (key >> 32) as usize;
+            let b = (key & 0xFFFF_FFFF) as usize;
             if ci < coverage.bins.len() {
                 let row = &mut coverage.bins[ci];
-                let bi = b as usize;
-                if bi < row.len() {
-                    // saturating add to be safe
-                    let newv = row[bi].saturating_add(v);
-                    row[bi] = newv;
+                if b < row.len() {
+                    row[b] = row[b].saturating_add(v);
                 }
             }
         }
