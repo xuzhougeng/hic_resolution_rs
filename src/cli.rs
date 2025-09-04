@@ -132,8 +132,8 @@ pub fn run() -> Result<()> {
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
     let mut pairs_mode = false;
     let mut pairs_chr_map: Option<utils::ChrLookup> = None;
-    let mut genome_names: Vec<String> = Vec::new();
-    let mut genome_lengths: Vec<u32> = Vec::new();
+    let genome_names: Vec<String>;
+    let genome_lengths: Vec<u32>;
 
     // Decide source of chromosome names + lengths, and build coverage
     let mut coverage = if let Some(path) = args.nodups.as_ref() {
