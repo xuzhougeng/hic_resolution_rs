@@ -94,12 +94,12 @@ pub enum StrawCmd {
         /// Input Hi-C file (.hic)
         input: PathBuf,
     },
-    /// Estimate effective resolution on a chromosome
+    /// Estimate effective resolution / coverage
     Effres {
         /// Input Hi-C file (.hic)
         input: PathBuf,
-        /// Chromosome name, e.g. 1 / chr1 / X
-        chromosome: String,
+        /// Chromosome name, e.g. 1 / chr1 / X. Omit to summarize across all chromosomes.
+        chromosome: Option<String>,
         /// Minimum contacts per bin to count as covered
         #[arg(long, default_value_t = 1000)]
         thr: i32,
@@ -375,6 +375,6 @@ fn run_straw(cli: &StrawCli) -> Result<()> {
             chromosome,
             thr,
             pct,
-        } => straw::effres_hic(input.as_path(), chromosome.as_str(), *thr, *pct),
+        } => straw::effres_hic(input.as_path(), chromosome.as_deref(), *thr, *pct),
     }
 }

@@ -347,8 +347,70 @@ pub fn list_hic_chromosomes(input: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn effres_hic(input: &Path, chrom_req: &str, thr: i32, pct: f64) -> Result<()> {
+pub fn effres_hic(input: &Path, chrom_req: Option<&str>, thr: i32, pct: f64) -> Result<()> {
     let mut hic = HicFile::open(input)?;
+    // If no chromosome provided, compute min/mean/max coverage across chromosomes per resolution
+    if chrom_req.is_none() {
+        println!("# File: {}", input.display());
+        println!("# Mode: all chromosomes coverage summary");
+        println!("# Filters: length >= 2,500,000 bp; exclude no-signal contigs per resolution");
+        println!("# Threshold per bin: {} contacts", thr);
+        println!("resolution_bp\tmin_cov\tmean_cov\tmax_cov");
+
+        let mut resolutions = hic.resolutions.clone();
+        resolutions.sort_unstable();
+
+        // Collect usable chromosome indices: index>0 and length >= 2,500,000 bp
+        let chr_idxs: Vec<i32> = hic
+            .chromosomes
+            .iter()
+            .filter(|c| c.index > 0 && c.length >= 2_500_000)
+            .map(|c| c.index)
+            .collect();
+
+        for res in resolutions {
+            let mut covs: Vec<f64> = Vec::with_capacity(chr_idxs.len());
+            for &ci in &chr_idxs {
+                let cov_opt = match hic.get_matrix_zoom_data(ci, ci, "BP", res)? {
+                    None => None,
+                    Some(mzd) => {
+                        let mut counts: HashMap<i32, f64> = HashMap::new();
+                        for (_, idx) in mzd.block_map.iter() {
+                            let records = read_block(&hic.path, idx, mzd.version)?;
+                            for rec in records {
+                                *counts.entry(rec.bin_x).or_insert(0.0) += rec.counts as f64;
+                                *counts.entry(rec.bin_y).or_insert(0.0) += rec.counts as f64;
+                            }
+                        }
+                        if counts.is_empty() {
+                            None // exclude no-signal contig for this resolution
+                        } else {
+                            let covered = counts.values().filter(|&&v| v >= thr as f64).count();
+                            Some(covered as f64 / counts.len() as f64)
+                        }
+                    }
+                };
+                if let Some(cov) = cov_opt { covs.push(cov); }
+            }
+            if covs.is_empty() {
+                println!("{}\t{:.3}\t{:.3}\t{:.3}", res, 0.0, 0.0, 0.0);
+            } else {
+                let min = covs
+                    .iter()
+                    .copied()
+                    .fold(f64::INFINITY, f64::min);
+                let max = covs
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let mean = covs.iter().sum::<f64>() / (covs.len() as f64);
+                println!("{}\t{:.3}\t{:.3}\t{:.3}", res, min, mean, max);
+            }
+        }
+        return Ok(());
+    }
+
+    // Single chromosome path (original: resolution vs coverage and effective resolution thresholding)
     // Collect available chromosomes with owned names to avoid borrowing conflicts
     let avail: Vec<(String, i32)> = hic
         .chromosomes
@@ -357,7 +419,7 @@ pub fn effres_hic(input: &Path, chrom_req: &str, thr: i32, pct: f64) -> Result<(
         .map(|c| (c.name.clone(), c.index))
         .collect();
     // Flexible name matching: case-insensitive, optional "chr" prefix
-    let req_s = chrom_req.to_lowercase();
+    let req_s = chrom_req.unwrap().to_lowercase();
     let req_trim = req_s.trim_start_matches("chr").to_string();
     let mut c_idx_opt: Option<i32> = None;
     for (name, idx) in &avail {
@@ -372,7 +434,7 @@ pub fn effres_hic(input: &Path, chrom_req: &str, thr: i32, pct: f64) -> Result<(
         None => {
             eprintln!(
                 "[ERROR] 未找到染色体 '{}', 可选值: {}",
-                chrom_req,
+                chrom_req.unwrap(),
                 avail
                     .iter()
                     .map(|(n, _)| n.as_str())
