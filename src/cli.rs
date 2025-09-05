@@ -9,7 +9,7 @@ use crate::{coverage, parser, resolution, straw, utils};
 use rayon::prelude::*;
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, arg_required_else_help = true)]
 #[command(name = "hic_resolution")]
 #[command(about = "Fast calculation of Hi-C map resolution")]
 pub struct Cli {

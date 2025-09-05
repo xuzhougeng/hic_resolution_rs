@@ -1,6 +1,6 @@
 [package]
 name = "hic_resolution_rs"
-version = "0.1.0"
+version = "0.3.3"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 description = "Fast Rust implementation of Hi-C map resolution calculation"
