@@ -1,5 +1,5 @@
 [package]
-name = "hic_resolution_rs"
+name = "hickit"
 version = "0.3.3"
 edition = "2021"
 authors = ["Zhougeng Xu <xuzhougeng@163.com>"]
@@ -7,11 +7,11 @@ description = "Fast Rust implementation of Hi-C map resolution calculation"
 license = "MIT"
 
 [lib]
-name = "hic_resolution_rs"
+name = "hickit"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hic_resolution"
+name = "hickit"
 path = "src/main.rs"
 
 [dependencies]

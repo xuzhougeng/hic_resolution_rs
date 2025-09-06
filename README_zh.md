@@ -1,12 +1,13 @@
-# Hi - C 分辨率计算器（Rust）
+# hickit：Hi-C 工具集（Rust）
 
-这是 Juicer 中 Hi - C 图谱分辨率计算算法的一个快速 Rust 实现，对应的是 [calculate_map_resolution.sh](https://github.com/aidenlab/juicer/blob/main/misc/calculate_map_resolution.sh)，基于 Rao & Huntley 等人在 2014 年发表于《细胞》杂志上的方法。
+一个用 Rust 编写的快速 Hi-C 工具集：分辨率估计（兼容 Juicer）、.hic（straw）工具，以及对 merged_nodups 的区间过滤。
 
 ## 概述
 
-该工具通过以下步骤计算 Hi - C 接触矩阵的图谱分辨率：
-1. 从 merged_nodups 文件构建一个 50bp 的覆盖向量
-2. 使用二分搜索找到至少 80% 的 bin 具有至少 1000 次接触的最小 bin 大小
+工具集包括：
+1. 分辨率（resolution）：从 merged_nodups 或 pairtools .pairs 估计图谱分辨率
+2. straw：对 .hic 文件进行 list/dump/effres（observed/NONE/BP）
+3. filter：按给定区间提取 merged_nodups 中相关的行
 
 ## 特点
 - **快速**：比原始的 Bash/awk 实现快 10 - 100 倍
@@ -26,20 +27,20 @@ cargo build --release
 ## 使用方法
 使用 merged_nodups 文件的基本用法：
 ```bash
-hic_resolution merged_nodups.txt
+hickit resolution merged_nodups.txt
 ```
 
 使用压缩输入：
 ```bash
-hic_resolution merged_nodups.txt.gz
+hickit resolution merged_nodups.txt.gz
 ```
 
 从标准输入读取：
 ```bash
-zcat merged_nodups.txt.gz | hic_resolution
+zcat merged_nodups.txt.gz | hickit resolution
 ```
 
-### 命令行选项
+### 分辨率子命令选项
 - `--genome-size <SIZE>`：以碱基对（bp）为单位的总基因组大小（默认值：对于 hg19 为 2428425688）
 - `--bin-width <WIDTH>`：以碱基对（bp）为单位的基础 bin 宽度（默认值：50）
 - `--prop <PROPORTION>`：良好 bin 的所需比例（默认值：0.8）
@@ -50,23 +51,23 @@ zcat merged_nodups.txt.gz | hic_resolution
 ### 示例
 ```bash
 # 人类 hg38 基因组
-hic_resolution --genome-size 3137161264 merged_nodups.txt
+hickit resolution --genome-size 3137161264 merged_nodups.txt
 
 # 自定义参数
-hic_resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
+hickit resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
 
 # 使用 8 个线程
-hic_resolution --threads 8 merged_nodups.txt.gz
+hickit resolution --threads 8 merged_nodups.txt.gz
 ```
 
 ### Pairtools .pairs 使用方法
 该工具还接受带有标题行（例如 `#chromsize:`）的 pairtools `.pairs` 或 `.pairs.gz` 文件：
 ```bash
 # 直接从.pairs 文件读取
-hic_resolution data/mapped.pairs
+hickit resolution data/mapped.pairs
 
 # 读取压缩的.pairs.gz
-hic_resolution data/mapped.pairs.gz
+hickit resolution data/mapped.pairs.gz
 ```
 - 染色体大小自动从 `.pairs` 标题中推导得出；不需要 `--chrom-size`。
 - 作为映射质量的替代指标，仅计算 `pair_type == UU` 的行。
@@ -78,16 +79,16 @@ hic_resolution data/mapped.pairs.gz
 
 ```bash
 # 单段式：CHR:START-END
-hic_resolution filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
 
 # 两段式：CHR START-END
-hic_resolution filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
 
 # 直接读取 gzip（根据 .gz 扩展名自动解压）
-hic_resolution filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
 
 # 从标准输入读取（若为 gzip 请自行解压）
-zcat data/merged_nodups.txt.gz | hic_resolution filter - ptg000001l:23805-33805 > subset.txt
+zcat data/merged_nodups.txt.gz | hickit filter - ptg000001l:23805-33805 > subset.txt
 ```
 
 - `--uniq`：套用与主解析一致的唯一性过滤（要求 `mapq1>0 && mapq2>0` 且 `frag1!=frag2`）。

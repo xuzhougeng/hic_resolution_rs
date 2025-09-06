@@ -310,7 +310,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
-name = "hic_resolution_rs"
+name = "hickit"
 version = "0.3.3"
 dependencies = [
  "anyhow",

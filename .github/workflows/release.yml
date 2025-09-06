@@ -18,36 +18,36 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: hic-resolution-linux
-            bin_path: target/x86_64-unknown-linux-musl/release/hic_resolution
+            artifact_name: hickit-linux
+            bin_path: target/x86_64-unknown-linux-musl/release/hickit
             pack_cmd: |
               set -e
               mkdir -p dist
-              cp target/x86_64-unknown-linux-musl/release/hic_resolution dist/hic_resolution
+              cp target/x86_64-unknown-linux-musl/release/hickit dist/hickit
               ARCH=$(uname -m)
-              PKG=hic_resolution-${{ github.ref_name }}-linux-musl-$ARCH.tar.gz
-              tar -czf "$PKG" -C dist hic_resolution
+              PKG=hickit-${{ github.ref_name }}-linux-musl-$ARCH.tar.gz
+              tar -czf "$PKG" -C dist hickit
               sha256sum "$PKG" | awk '{print $1}' > "$PKG.sha256"
           - os: macos-latest
-            artifact_name: hic-resolution-macos
-            bin_path: target/release/hic_resolution
+            artifact_name: hickit-macos
+            bin_path: target/release/hickit
             pack_cmd: |
               set -e
               mkdir -p dist
-              cp target/release/hic_resolution dist/hic_resolution
+              cp target/release/hickit dist/hickit
               ARCH=$(uname -m)
-              PKG=hic_resolution-${{ github.ref_name }}-macos-$ARCH.tar.gz
-              tar -czf "$PKG" -C dist hic_resolution
+              PKG=hickit-${{ github.ref_name }}-macos-$ARCH.tar.gz
+              tar -czf "$PKG" -C dist hickit
               shasum -a 256 "$PKG" | awk '{print $1}' > "$PKG.sha256"
           - os: windows-latest
-            artifact_name: hic-resolution-windows
-            bin_path: target\\release\\hic_resolution.exe
+            artifact_name: hickit-windows
+            bin_path: target\\release\\hickit.exe
             pack_cmd: |
               New-Item -ItemType Directory -Force -Path dist | Out-Null
-              Copy-Item -Path target/release/hic_resolution.exe -Destination dist/hic_resolution.exe -Force
+              Copy-Item -Path target/release/hickit.exe -Destination dist/hickit.exe -Force
               $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x86_64' } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { $env:PROCESSOR_ARCHITECTURE }
-              $pkg = "hic_resolution-${{ github.ref_name }}-windows-$arch.zip"
-              Compress-Archive -Path dist/hic_resolution.exe -DestinationPath $pkg -Force
+              $pkg = "hickit-${{ github.ref_name }}-windows-$arch.zip"
+              Compress-Archive -Path dist/hickit.exe -DestinationPath $pkg -Force
               (Get-FileHash $pkg -Algorithm SHA256).Hash | Set-Content -Encoding ascii "$pkg.sha256"
 
     steps:
@@ -105,10 +105,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/**/hic_resolution-*.tar.gz
-            artifacts/**/hic_resolution-*.zip
-            artifacts/**/hic_resolution-*.sha256
+            artifacts/**/hickit-*.tar.gz
+            artifacts/**/hickit-*.zip
+            artifacts/**/hickit-*.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

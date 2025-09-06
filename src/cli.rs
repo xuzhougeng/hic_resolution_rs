@@ -11,58 +11,18 @@ use rayon::prelude::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None, arg_required_else_help = true)]
-#[command(name = "hic_resolution")]
-#[command(about = "Fast calculation of Hi-C map resolution")]
+#[command(name = "hickit")]
+#[command(about = "Fast Hi-C toolkit: resolution + filters + .hic utils")]
 pub struct Cli {
-    /// Path to merged_nodups file (can be .gz compressed)
-    #[arg(value_name = "MERGED_NODUPS")]
-    pub nodups: Option<PathBuf>,
-
-    /// Path to chromosome sizes file
-    #[arg(short, long, value_name = "CHROM_SIZE")]
-    pub chrom_size: Option<PathBuf>,
-
-    /// Total genome size in base pairs
-    #[arg(long, default_value = "1000000000")]
-    pub genome_size: u64,
-
-    /// Minimum bin size (base pairs)
-    #[arg(long, default_value = "50")]
-    pub bin_width: u32,
-
-    /// Proportion of bins that must meet coverage threshold
-    #[arg(long, default_value = "0.8")]
-    pub prop: f64,
-
-    /// Minimum contacts per bin to be considered "good"
-    #[arg(long, default_value = "1000")]
-    pub count_threshold: u32,
-
-    /// Step size for initial coarse search
-    #[arg(long, default_value = "1000")]
-    pub step_size: u32,
-
-    /// Number of threads to use (0 = auto)
-    #[arg(short, long, default_value = "4")]
-    pub threads: usize,
-
-    /// Aggregation chunk size in number of pairs
-    /// Default chosen to fit comfortably under ~8 GB RAM
-    #[arg(long, value_name = "PAIRS", default_value = "4000000")]
-    pub chunk_pairs: usize,
-
-    /// Per-worker subchunk size in number of pairs
-    /// Default tuned for throughput under ~8 GB RAM
-    #[arg(long, value_name = "PAIRS", default_value = "128000")]
-    pub subchunk_pairs: usize,
-
-    /// Optional subcommand. Use `straw` to work with .hic slices.
+    /// Subcommands: resolution, straw, filter
     #[command(subcommand)]
-    pub cmd: Option<Commands>,
+    pub cmd: Commands,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Estimate Hi-C map resolution from merged_nodups or .pairs
+    Resolution(ResolutionCli),
     /// Straw-compatible utilities
     Straw(StrawCli),
     /// Filter merged_nodups(.gz) by genomic region
@@ -113,6 +73,49 @@ pub enum StrawCmd {
 }
 
 #[derive(Args, Debug)]
+pub struct ResolutionCli {
+    /// Path to merged_nodups or .pairs file (can be .gz)
+    #[arg(value_name = "INPUT")] 
+    pub nodups: Option<PathBuf>,
+
+    /// Path to chromosome sizes file (if input has no header)
+    #[arg(short, long, value_name = "CHROM_SIZE")]
+    pub chrom_size: Option<PathBuf>,
+
+    /// Total genome size in base pairs (unused; kept for compatibility)
+    #[arg(long, default_value_t = 1_000_000_000)]
+    pub genome_size: u64,
+
+    /// Minimum bin size (base pairs)
+    #[arg(long, default_value_t = 50)]
+    pub bin_width: u32,
+
+    /// Proportion of bins that must meet coverage threshold
+    #[arg(long, default_value_t = 0.8)]
+    pub prop: f64,
+
+    /// Minimum contacts per bin to be considered "good"
+    #[arg(long, default_value_t = 1000)]
+    pub count_threshold: u32,
+
+    /// Step size for initial coarse search
+    #[arg(long, default_value_t = 1000)]
+    pub step_size: u32,
+
+    /// Number of threads to use (0 = auto)
+    #[arg(short, long, default_value_t = 4)]
+    pub threads: usize,
+
+    /// Aggregation chunk size in number of pairs (default ~8 GB RAM safe)
+    #[arg(long, value_name = "PAIRS", default_value_t = 4_000_000)]
+    pub chunk_pairs: usize,
+
+    /// Per-worker subchunk size in number of pairs
+    #[arg(long, value_name = "PAIRS", default_value_t = 128_000)]
+    pub subchunk_pairs: usize,
+}
+
+#[derive(Args, Debug)]
 pub struct FilterCli {
     /// Input merged_nodups file (.txt or .gz). Omit to read from stdin.
     #[arg(value_name = "MERGED_NODUPS")] 
@@ -130,14 +133,14 @@ pub struct FilterCli {
 
 pub fn run() -> Result<()> {
     let args = Cli::parse();
-
-    // Subcommands take precedence
     match &args.cmd {
-        Some(Commands::Straw(cli)) => { return run_straw(cli); }
-        Some(Commands::Filter(cli)) => { return run_filter(cli); }
-        None => {}
+        Commands::Resolution(r) => run_resolution(r),
+        Commands::Straw(s) => run_straw(s),
+        Commands::Filter(f) => run_filter(f),
     }
+}
 
+fn run_resolution(args: &ResolutionCli) -> Result<()> {
     // Set thread pool size
     if args.threads > 0 {
         rayon::ThreadPoolBuilder::new()
@@ -146,8 +149,8 @@ pub fn run() -> Result<()> {
             .unwrap();
     }
 
-    println!("Hi-C Resolution Calculator (Rust)");
-    println!("=================================");
+    println!("hickit – Hi-C toolkit (Rust)");
+    println!("=============================");
 
     // Create coverage structure (auto-detect pairtools header if present)
     let chrom_size_path = args.chrom_size.as_ref().map(|p| p.to_str().unwrap());
@@ -225,7 +228,7 @@ pub fn run() -> Result<()> {
 
     // Parse input file and build coverage
     pb.set_message("Reading merged_nodups file...");
-    let pairs_processed = if let Some(path) = args.nodups {
+    let pairs_processed = if let Some(path) = args.nodups.as_ref() {
         let file = File::open(&path)?;
         let is_gz = path.extension().map_or(false, |ext| ext == "gz");
         if pairs_mode {

@@ -1,13 +1,14 @@
-# Hi-C Resolution Calculator (Rust)
+# hickit: Hi-C Toolkit (Rust)
 
-A fast Rust implementation of the Hi-C map resolution calculation algorithm from Juicer [calculate_map_resolution.sh](https://github.com/aidenlab/juicer/blob/main/misc/calculate_map_resolution.sh), based on the methodology described in Rao & Huntley et al., Cell 2014.
+Fast Hi-C toolkit in Rust: map resolution estimation (Juicer-compatible), .hic (straw) helpers, and region filters for merged_nodups.
 
 ## Overview
 
-This tool calculates the map resolution of Hi-C contact matrices by:
+This toolkit provides:
 
-1. Building a 50bp coverage vector from merged_nodups files
-2. Using binary search to find the minimum bin size where ≥80% of bins have ≥1000 contacts
+1. Resolution: estimate map resolution from merged_nodups or pairtools .pairs
+2. Straw: list/dump/effres for .hic files (observed/NONE/BP)
+3. Filter: extract merged_nodups lines overlapping a genomic region
 
 ## Features
 
@@ -28,23 +29,23 @@ cargo build --release
 
 Basic usage with a merged_nodups file:
 ```bash
-hic_resolution merged_nodups.txt
+hickit resolution merged_nodups.txt
 ```
 
 With compressed input:
 ```bash
-hic_resolution merged_nodups.txt.gz
+hickit resolution merged_nodups.txt.gz
 ```
 
 Reading from stdin:
 ```bash
-zcat merged_nodups.txt.gz | hic_resolution
+zcat merged_nodups.txt.gz | hickit resolution
 ```
 
-### Command Line Options
+### Resolution Options
 
 - `--genome-size <SIZE>`: Total genome size in bp (default: 2428425688 for hg19)
-- `--bin-width <WIDTH>`: Base bin width in bp (default: 50)  
+- `--bin-width <WIDTH>`: Base bin width in bp (default: 50)
 - `--prop <PROPORTION>`: Required proportion of good bins (default: 0.8)
 - `--count-threshold <COUNT>`: Minimum contacts per bin (default: 1000)
 - `--step-size <SIZE>`: Step size for coarse search (default: 1000)
@@ -54,13 +55,13 @@ zcat merged_nodups.txt.gz | hic_resolution
 
 ```bash
 # Human hg38 genome
-hic_resolution --genome-size 3137161264 merged_nodups.txt
+hickit resolution --genome-size 3137161264 merged_nodups.txt
 
 # Custom parameters  
-hic_resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
+hickit resolution --prop 0.75 --count-threshold 500 merged_nodups.txt
 
 # With 8 threads
-hic_resolution --threads 8 merged_nodups.txt.gz
+hickit resolution --threads 8 merged_nodups.txt.gz
 ```
 
 ### Pairtools .pairs Usage
@@ -69,10 +70,10 @@ The tool also accepts pairtools `.pairs` or `.pairs.gz` files with header lines 
 
 ```bash
 # Read directly from a .pairs file
-hic_resolution data/mapped.pairs
+hickit resolution data/mapped.pairs
 
 # Read compressed .pairs.gz
-hic_resolution data/mapped.pairs.gz
+hickit resolution data/mapped.pairs.gz
 ```
 
 - Chrom sizes are auto-derived from the `.pairs` header; `--chrom-size` is not required.
@@ -85,16 +86,16 @@ Extract lines from `merged_nodups(.gz)` where either end overlaps a genomic regi
 
 ```bash
 # CHR:START-END form
-hic_resolution filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
 
 # CHR START-END form
-hic_resolution filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
 
 # Read gzip directly (auto-detected by .gz extension)
-hic_resolution filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
+hickit filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
 
 # From stdin (decompress yourself if needed)
-zcat data/merged_nodups.txt.gz | hic_resolution filter - ptg000001l:23805-33805 > subset.txt
+zcat data/merged_nodups.txt.gz | hickit filter - ptg000001l:23805-33805 > subset.txt
 ```
 
 - `--uniq`: apply the same uniqueness filter as the main parser (requires `mapq1>0 && mapq2>0` and `frag1!=frag2`).
@@ -106,7 +107,7 @@ zcat data/merged_nodups.txt.gz | hic_resolution filter - ptg000001l:23805-33805 
 List resolutions and chromosomes in a `.hic` file:
 
 ```bash
-hic_resolution straw list data/example.hic
+hickit straw list data/example.hic
 # Outputs:
 # Resolutions (BP): 25000, 10000, 5000, ...
 # Chromosomes (name\tlength):
@@ -116,7 +117,7 @@ hic_resolution straw list data/example.hic
 Dump genome-wide observed counts at a resolution to a slice file (gzip):
 
 ```bash
-hic_resolution straw dump observed NONE data/example.hic BP 10000 out.slc.gz
+hickit straw dump observed NONE data/example.hic BP 10000 out.slc.gz
 ```
 
 - Supports local `.hic` files; unit must be `BP` and normalization `NONE`.
@@ -125,7 +126,7 @@ hic_resolution straw dump observed NONE data/example.hic BP 10000 out.slc.gz
 Estimate effective resolution per chromosome (Python reference logic):
 
 ```bash
-hic_resolution straw effres data/example.hic chr1 --thr 1000 --pct 0.8
+hickit straw effres data/example.hic chr1 --thr 1000 --pct 0.8
 # Prints coverage by resolution and the first resolution meeting the threshold
 ```
 
