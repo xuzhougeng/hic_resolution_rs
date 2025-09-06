@@ -79,6 +79,28 @@ hic_resolution data/mapped.pairs.gz
 - As a proxy for mapping quality, only rows with `pair_type == UU` are counted.
 - Note: Auto-detection relies on reading the file path. If you use stdin piping for `.pairs`, header detection is skipped; prefer passing the file path directly.
 
+### Filter merged_nodups by region
+
+Extract lines from `merged_nodups(.gz)` where either end overlaps a genomic region and print them to stdout.
+
+```bash
+# CHR:START-END form
+hic_resolution filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
+
+# CHR START-END form
+hic_resolution filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
+
+# Read gzip directly (auto-detected by .gz extension)
+hic_resolution filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
+
+# From stdin (decompress yourself if needed)
+zcat data/merged_nodups.txt.gz | hic_resolution filter - ptg000001l:23805-33805 > subset.txt
+```
+
+- `--uniq`: apply the same uniqueness filter as the main parser (requires `mapq1>0 && mapq2>0` and `frag1!=frag2`).
+- Region is inclusive `[start, end]`. Separators `-`, `..`, or `_` are accepted; commas in numbers are allowed (e.g., `23,805-33,805`).
+- Outputs matching original lines unmodified, suitable for downstream tools.
+
 ## Straw (.hic) Utilities
 
 List resolutions and chromosomes in a `.hic` file:

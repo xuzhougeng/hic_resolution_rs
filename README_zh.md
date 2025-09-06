@@ -72,6 +72,28 @@ hic_resolution data/mapped.pairs.gz
 - 作为映射质量的替代指标，仅计算 `pair_type == UU` 的行。
 - 注意：自动检测依赖于读取文件路径。如果对 `.pairs` 使用标准输入管道，将跳过标题检测；建议直接传递文件路径。
 
+### 区间过滤 merged_nodups
+
+从 `merged_nodups(.gz)` 中提取与给定区间相关的行（任一端命中即输出到 stdout）。
+
+```bash
+# 单段式：CHR:START-END
+hic_resolution filter data/merged_nodups.txt ptg000001l:23805-33805 > subset.txt
+
+# 两段式：CHR START-END
+hic_resolution filter data/merged_nodups.txt ptg000001l 23805-33805 > subset.txt
+
+# 直接读取 gzip（根据 .gz 扩展名自动解压）
+hic_resolution filter data/merged_nodups.txt.gz ptg000001l:23805-33805 > subset.txt
+
+# 从标准输入读取（若为 gzip 请自行解压）
+zcat data/merged_nodups.txt.gz | hic_resolution filter - ptg000001l:23805-33805 > subset.txt
+```
+
+- `--uniq`：套用与主解析一致的唯一性过滤（要求 `mapq1>0 && mapq2>0` 且 `frag1!=frag2`）。
+- 区间为闭区间 `[start, end]`；支持分隔符 `-`、`..` 或 `_`，数字可带千分位逗号（如 `23,805-33,805`）。
+- 输出为匹配的原始行，便于下游直接使用。
+
 ## 输入格式
 该工具期望的 Juicer merged_nodups 格式为制表符分隔的字段：
 ```

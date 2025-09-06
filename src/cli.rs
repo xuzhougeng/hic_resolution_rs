@@ -6,6 +6,7 @@ use std::io::stdin;
 use std::path::PathBuf;
 
 use crate::{coverage, parser, resolution, straw, utils};
+use crate::filter;
 use rayon::prelude::*;
 
 #[derive(Parser)]
@@ -64,6 +65,8 @@ pub struct Cli {
 pub enum Commands {
     /// Straw-compatible utilities
     Straw(StrawCli),
+    /// Filter merged_nodups(.gz) by genomic region
+    Filter(FilterCli),
 }
 
 #[derive(Args, Debug)]
@@ -109,12 +112,30 @@ pub enum StrawCmd {
     },
 }
 
+#[derive(Args, Debug)]
+pub struct FilterCli {
+    /// Input merged_nodups file (.txt or .gz). Omit to read from stdin.
+    #[arg(value_name = "MERGED_NODUPS")] 
+    pub input: Option<PathBuf>,
+    /// Region spec: either CHROM:START-END, or provide CHROM and START-END as two args
+    #[arg(value_name = "REGION_OR_CHROM")] 
+    pub region_or_chrom: String,
+    /// Optional START-END when CHROM provided separately
+    #[arg(value_name = "START-END")] 
+    pub maybe_span: Option<String>,
+    /// Require UU-like filter (mapq>0 both ends and frag1!=frag2)
+    #[arg(long, default_value_t = false)]
+    pub uniq: bool,
+}
+
 pub fn run() -> Result<()> {
     let args = Cli::parse();
 
     // Subcommands take precedence
-    if let Some(Commands::Straw(cli)) = &args.cmd {
-        return run_straw(cli);
+    match &args.cmd {
+        Some(Commands::Straw(cli)) => { return run_straw(cli); }
+        Some(Commands::Filter(cli)) => { return run_filter(cli); }
+        None => {}
     }
 
     // Set thread pool size
@@ -377,4 +398,9 @@ fn run_straw(cli: &StrawCli) -> Result<()> {
             pct,
         } => straw::effres_hic(input.as_path(), chromosome.as_deref(), *thr, *pct),
     }
+}
+
+fn run_filter(cli: &FilterCli) -> Result<()> {
+    let region = filter::Region::parse(&cli.region_or_chrom, cli.maybe_span.as_deref())?;
+    filter::run_filter_file(cli.input.as_deref(), region, cli.uniq)
 }
